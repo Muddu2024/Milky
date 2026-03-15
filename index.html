@@ -10,9 +10,6 @@
   import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js";
   import { getDatabase, ref, set, onValue, update } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-database.js";
 
-  // ╔══════════════════════════════════════════════════════════╗
-  // ║  PASTE YOUR FIREBASE CONFIG HERE  (Step 3 in the guide) ║
-  // ╚══════════════════════════════════════════════════════════╝
   const firebaseConfig = {
     apiKey:            "AIzaSyAKz0EgsWU103VaCL1Aiyhv93iHjWfYF4E",
     authDomain:        "milky-meds.firebaseapp.com",
@@ -22,30 +19,75 @@
     messagingSenderId: "325951472828",
     appId:             "1:325951472828:web:11b4340476d1de3186bcb9"
   };
-  // ══════════════════════════════════════════════════════════
 
   const app = initializeApp(firebaseConfig);
   const db  = getDatabase(app);
 
-  const SESSIONS = [
-    { id:'pan',    grp:'🌅 Morning',     time:'6:00 AM',  label:'Pan 20mg — 1 tab, empty stomach' },
-    { id:'pred1',  grp:'🌅 Morning',     time:'6:05 AM',  label:'Pred Forte Dose 1/6 — Left eye' },
-    { id:'wys_m',  grp:'🌅 Morning',     time:'8:00 AM',  label:'Wysalone 10mg — ¾ tab (NOT with food)' },
-    { id:'zedox',  grp:'🌅 Morning',     time:'8:00 AM',  label:'Zedox 100mg — 1½ tabs with breakfast' },
-    { id:'pred2',  grp:'☀️ Mid-Morning', time:'10:05 AM', label:'Pred Forte Dose 2/6 — Left eye' },
-    { id:'maxm1',  grp:'☀️ Mid-Morning', time:'10:10 AM', label:'Maxmoist Ultra Dose 1/3 — Both eyes' },
-    { id:'pred3',  grp:'🌤️ Afternoon',  time:'2:05 PM',  label:'Pred Forte Dose 3/6 — Left eye' },
-    { id:'maxm2',  grp:'🌤️ Afternoon',  time:'2:10 PM',  label:'Maxmoist Ultra Dose 2/3 — Both eyes' },
-    { id:'pred4',  grp:'🌇 Evening',     time:'6:05 PM',  label:'Pred Forte Dose 4/6 — Left eye' },
-    { id:'maxm3',  grp:'🌇 Evening',     time:'6:10 PM',  label:'Maxmoist Ultra Dose 3/3 — Both eyes' },
-    { id:'wys_d',  grp:'🌇 Evening',     time:'6:30 PM',  label:'Wysalone 10mg — ¾ tab (NOT with food) · Days 1–7' },
-    { id:'pred5',  grp:'🌇 Evening',     time:'8:05 PM',  label:'Pred Forte Dose 5/6 — Left eye' },
-    { id:'pred6',  grp:'🌙 Night',       time:'10:05 PM', label:'Pred Forte Dose 6/6 — Left eye' },
-    { id:'tropic', grp:'🌙 Night',       time:'10:10 PM', label:'Tropicamide — Left eye (Days 1–6 only)' },
-  ];
+  // ─── SMART SESSION BUILDER ────────────────────────────────────────────────
+  // Returns the correct list of sessions FOR a specific day (0-indexed)
+  // Medicines auto-appear/disappear and labels change based on the day
+  function getSessionsForDay(d) {
+    const sessions = [];
 
-  const TOTAL       = SESSIONS.length;
-  const DAYS        = 14;
+    // ── Pan 20mg ── 14 days (days 0–13)
+    if (d <= 13) sessions.push({
+      id: 'pan', grp: '🌅 Morning', time: '7:00 AM',
+      label: 'Pan 20mg — 1 tab, empty stomach',
+      badge: '14 days'
+    });
+
+    // ── Pred Forte ── 15 days (days 0–14), 6 doses, 6AM–9PM (≈3hr gaps)
+    if (d <= 14) {
+      sessions.push({ id:'pred1', grp:'🌅 Morning',     time:'6:00 AM',  label:'Pred Forte Dose 1/6 — Left eye', badge:'15 days' });
+      sessions.push({ id:'pred2', grp:'☀️ Mid-Morning', time:'9:00 AM',  label:'Pred Forte Dose 2/6 — Left eye', badge:'15 days' });
+      sessions.push({ id:'pred3', grp:'🌤️ Afternoon',  time:'12:00 PM', label:'Pred Forte Dose 3/6 — Left eye', badge:'15 days' });
+      sessions.push({ id:'pred4', grp:'🌤️ Afternoon',  time:'3:00 PM',  label:'Pred Forte Dose 4/6 — Left eye', badge:'15 days' });
+      sessions.push({ id:'pred5', grp:'🌇 Evening',     time:'6:00 PM',  label:'Pred Forte Dose 5/6 — Left eye', badge:'15 days' });
+      sessions.push({ id:'pred6', grp:'🌙 Night',       time:'9:00 PM',  label:'Pred Forte Dose 6/6 — Left eye', badge:'15 days' });
+    }
+
+    // ── Wysalone morning ── 15 days, dose changes by day
+    // Days 1–7 (d 0–6):  ¾ tab × 2/day
+    // Days 8–12 (d 7–11): ¾ tab × 1/day
+    // Days 13–15 (d 12–14): ½ tab × 1/day
+    if (d <= 14) {
+      let wysLabel, wysBadge;
+      if (d <= 6)       { wysLabel = 'Wysalone 10mg — ¾ tab with/after food (morning)'; wysBadge = `Day ${d+1}/15 · ¾ tab×2/day`; }
+      else if (d <= 11) { wysLabel = 'Wysalone 10mg — ¾ tab with/after food';           wysBadge = `Day ${d+1}/15 · ¾ tab×1/day`; }
+      else              { wysLabel = 'Wysalone 10mg — ½ tab with/after food';            wysBadge = `Day ${d+1}/15 · ½ tab×1/day`; }
+      sessions.push({ id:'wys_m', grp:'☀️ Mid-Morning', time:'9:00 AM', label: wysLabel, badge: wysBadge });
+    }
+
+    // ── Wysalone evening ── ONLY Days 1–7 (d 0–6)
+    if (d <= 6) sessions.push({
+      id: 'wys_d', grp: '🌇 Evening', time: '6:30 PM',
+      label: 'Wysalone 10mg — ¾ tab with/after dinner (evening)',
+      badge: `⚠️ Day ${d+1}/7 · stops Day 8`
+    });
+
+    // ── Zedox 100mg ── 14 days (days 0–13)
+    if (d <= 13) sessions.push({
+      id: 'zedox', grp: '☀️ Mid-Morning', time: '9:00 AM',
+      label: 'Zedox 100mg — 1½ tabs with food',
+      badge: '14 days'
+    });
+
+    // ── Maxmoist Ultra ── Long term, 3× daily
+    sessions.push({ id:'maxm1', grp:'🌅 Morning',    time:'7:00 AM', label:'Maxmoist Ultra Dose 1/3 — Both eyes', badge:'Long term' });
+    sessions.push({ id:'maxm2', grp:'🌤️ Afternoon', time:'1:00 PM', label:'Maxmoist Ultra Dose 2/3 — Both eyes', badge:'Long term' });
+    sessions.push({ id:'maxm3', grp:'🌇 Evening',    time:'7:00 PM', label:'Maxmoist Ultra Dose 3/3 — Both eyes', badge:'Long term' });
+
+    // ── Tropicamide ── ONLY Days 1–6 (d 0–5)
+    if (d <= 5) sessions.push({
+      id: 'tropic', grp: '🌙 Night', time: '10:00 PM',
+      label: 'Tropicamide — Left eye once at night',
+      badge: `⚠️ Day ${d+1}/6`
+    });
+
+    return sessions;
+  }
+
+  const DAYS        = 15; // 15 days total (Pred Forte & Wysalone run 15 days)
   const START       = new Date('2026-03-14');
   const GROUP_ORDER = ['🌅 Morning','☀️ Mid-Morning','🌤️ Afternoon','🌇 Evening','🌙 Night'];
 
@@ -57,10 +99,12 @@
     render();
   });
 
-  function getTick(d, sid) { return !!(ticks[d] && ticks[d][sid]); }
-  function dayCount(d)     { return SESSIONS.filter(s => getTick(d, s.id)).length; }
-  function dayDone(d)      { return dayCount(d) === TOTAL; }
-  function totalDone()     { let n=0; for(let d=0;d<DAYS;d++) n+=dayCount(d); return n; }
+  function getTick(d, sid)  { return !!(ticks[d] && ticks[d][sid]); }
+  function dayCount(d)      { return getSessionsForDay(d).filter(s => getTick(d, s.id)).length; }
+  function dayTotal(d)      { return getSessionsForDay(d).length; }
+  function dayDone(d)       { return dayTotal(d) > 0 && dayCount(d) === dayTotal(d); }
+  function totalDone()      { let n=0; for(let d=0;d<DAYS;d++) n+=dayCount(d); return n; }
+  function grandTotal()     { let n=0; for(let d=0;d<DAYS;d++) n+=dayTotal(d); return n; }
   function fmtDate(d) {
     const dt = new Date(START);
     dt.setDate(dt.getDate() + d);
@@ -74,73 +118,105 @@
   async function tickAll(d) {
     const allDone = dayDone(d);
     const updates = {};
-    SESSIONS.forEach(s => { updates[`milky/ticks/${d}/${s.id}`] = allDone ? null : true; });
+    getSessionsForDay(d).forEach(s => {
+      updates[`milky/ticks/${d}/${s.id}`] = allDone ? null : true;
+    });
     await update(ref(db), updates);
   }
 
   window.resetAll = async function() {
-    if (confirm('Reset ALL ticks for all 14 days?\nThis clears ticks for everyone in the family.')) {
+    if (confirm('Reset ALL ticks for all days?\nThis clears ticks for everyone in the family.')) {
       await set(ref(db, 'milky/ticks'), null);
-      openDay = null;
-      render();
+      openDay = null; render();
     }
   };
 
   function render() {
-    const done  = totalDone();
-    const total = DAYS * TOTAL;
+    const done  = totalDone(), total = grandTotal();
     const pct   = Math.round(done / total * 100);
     document.getElementById('overallBar').style.width   = pct + '%';
     document.getElementById('overallLabel').textContent = `${done} / ${total} sessions completed (${pct}%)`;
 
+    // Day pills
     const pills = document.getElementById('dayPills');
     pills.innerHTML = '';
     for (let d = 0; d < DAYS; d++) {
       const isDone = dayDone(d), isActive = openDay === d;
       const el = document.createElement('div');
       el.className = `day-pill${isDone?' complete':''}${isActive?' active':''}`;
-      el.title     = fmtDate(d);
+      el.title = fmtDate(d);
       el.innerHTML = `<div class="pill-num">D${d+1}</div><div class="pill-sub">${isDone?'✓':dayCount(d)>0?'~':''}</div>`;
       el.addEventListener('click', () => { openDay = openDay===d ? null : d; render(); });
       pills.appendChild(el);
     }
 
+    // Day panel
     const panel = document.getElementById('dayPanel');
     if (openDay === null) { panel.innerHTML = ''; return; }
-    const d = openDay, cnt = dayCount(d), done2 = cnt === TOTAL;
+
+    const d = openDay;
+    const sessions = getSessionsForDay(d);
+    const cnt = dayCount(d), tot = dayTotal(d), done2 = cnt === tot;
+
+    // Wysalone tapering note for current day
+    let wysTaperNote = '';
+    if (d <= 6)       wysTaperNote = `📌 <strong>Days 1–7:</strong> ¾ tab TWICE daily (9AM + 6:30PM) — <em>You are on Day ${d+1}</em>`;
+    else if (d <= 11) wysTaperNote = `📌 <strong>Days 8–12:</strong> ¾ tab ONCE daily (9AM only) — <em>Evening dose has stopped</em>`;
+    else              wysTaperNote = `📌 <strong>Days 13–15:</strong> ½ tab ONCE daily (9AM only) — <em>You are on Day ${d+1}</em>`;
 
     let html = `
       <div class="day-panel">
         <div class="day-panel-header">
           <div class="day-panel-title">Day ${d+1} &nbsp;·&nbsp; ${fmtDate(d)}</div>
-          <div class="day-panel-count${done2?'':' partial'}">${cnt}/${TOTAL}${done2?' ✅':''}</div>
+          <div class="day-panel-count${done2?'':' partial'}">${cnt}/${tot}${done2?' ✅':''}</div>
         </div>
-        <div class="mini-bar-wrap"><div class="mini-bar" style="width:${Math.round(cnt/TOTAL*100)}%"></div></div>`;
+        <div class="mini-bar-wrap"><div class="mini-bar" style="width:${Math.round(cnt/tot*100)}%"></div></div>
+        <div class="wys-taper-note">${wysTaperNote}</div>`;
 
     GROUP_ORDER.forEach(grp => {
-      const items = SESSIONS.filter(s => s.grp === grp);
+      // Sort sessions within group by time
+      const items = sessions
+        .filter(s => s.grp === grp)
+        .sort((a, b) => {
+          const toMin = t => {
+            const [time, ap] = t.split(' ');
+            let [h, m] = time.split(':').map(Number);
+            if (ap === 'PM' && h !== 12) h += 12;
+            if (ap === 'AM' && h === 12) h = 0;
+            return h * 60 + m;
+          };
+          return toMin(a.time) - toMin(b.time);
+        });
       if (!items.length) return;
+
       html += `<div class="sess-group"><div class="sess-label">${grp}</div>`;
       items.forEach(s => {
         const ticked = getTick(d, s.id);
         html += `
           <div class="chk${ticked?' done':''}" data-d="${d}" data-sid="${s.id}">
             <div class="chk-box">${ticked?'✓':''}</div>
-            <div class="chk-text">${s.label}</div>
+            <div class="chk-col">
+              <div class="chk-text">${s.label}</div>
+              <div class="chk-badge">${s.badge}</div>
+            </div>
             <div class="chk-time">${s.time}</div>
           </div>`;
       });
       html += `</div>`;
     });
 
-    html += `<button class="tick-all-btn" id="tabBtn">
-      ${done2 ? '↩ Untick all — Day '+(d+1) : '✓ Mark all done — Day '+(d+1)}
-    </button></div>`;
+    html += `
+        <button class="tick-all-btn" id="tabBtn">
+          ${done2 ? '↩ Untick all — Day '+(d+1) : '✓ Mark all done — Day '+(d+1)}
+        </button>
+      </div>`;
 
     panel.innerHTML = html;
     document.getElementById('tabBtn').addEventListener('click', () => tickAll(d));
     panel.querySelectorAll('.chk').forEach(el => {
-      el.addEventListener('click', () => setTick(+el.dataset.d, el.dataset.sid, !getTick(+el.dataset.d, el.dataset.sid)));
+      el.addEventListener('click', () =>
+        setTick(+el.dataset.d, el.dataset.sid, !getTick(+el.dataset.d, el.dataset.sid))
+      );
     });
   }
 
@@ -170,17 +246,20 @@
   body { background:var(--cream); font-family:'DM Sans',sans-serif; color:var(--brown-deep); min-height:100vh; padding:24px 16px 60px; }
   .page { max-width:680px; margin:0 auto; }
 
+  /* HEADER */
   .header { text-align:center; padding:36px 24px 28px; background:var(--brown-deep); border-radius:20px 20px 0 0; position:relative; overflow:hidden; }
   .header::before { content:''; position:absolute; top:-40px; right:-40px; width:160px; height:160px; background:rgba(255,255,255,0.04); border-radius:50%; }
   .paw { font-size:2.2rem; margin-bottom:8px; display:block; }
   .header h1 { font-family:'Fraunces',serif; font-size:2rem; font-weight:900; color:#fff; letter-spacing:-0.5px; }
-  .header .sub { color:rgba(255,255,255,0.6); font-size:0.82rem; margin-top:6px; font-weight:300; letter-spacing:0.5px; }
+  .header .sub { color:rgba(255,255,255,0.5); font-size:0.8rem; margin-top:6px; font-weight:300; }
   .header .dog-tag { display:inline-block; margin-top:12px; background:var(--amber); color:#fff; font-size:0.75rem; font-weight:600; padding:4px 14px; border-radius:20px; }
   .sync-dot { display:inline-block; width:8px; height:8px; background:#4caf50; border-radius:50%; margin-left:8px; vertical-align:middle; animation:pulse 2s infinite; }
   @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.3} }
 
+  /* CARD */
   .card { background:var(--warm-white); border:1px solid var(--border); border-top:none; border-radius:0 0 20px 20px; overflow:hidden; }
 
+  /* TRACKER */
   .tracker-wrap { padding:20px 20px 18px; border-bottom:2px solid var(--border); background:#f7f2eb; }
   .tracker-title { font-family:'Fraunces',serif; font-size:1rem; font-weight:700; color:var(--brown-deep); margin-bottom:2px; }
   .tracker-sub { font-size:0.75rem; color:#a08870; margin-bottom:12px; }
@@ -197,6 +276,7 @@
   .pill-num { font-size:0.8rem; font-weight:700; line-height:1; }
   .pill-sub { font-size:0.6rem; line-height:1.6; }
 
+  /* DAY PANEL */
   .day-panel { background:#fff; border:1.5px solid var(--border); border-radius:14px; overflow:hidden; margin-bottom:10px; }
   .day-panel-header { padding:12px 16px; background:#fef8ec; border-bottom:1px solid var(--border); display:flex; align-items:center; gap:10px; }
   .day-panel-title { font-family:'Fraunces',serif; font-size:0.92rem; font-weight:700; color:var(--brown-deep); flex:1; }
@@ -205,25 +285,32 @@
   .mini-bar-wrap { height:4px; background:#e8ddd0; }
   .mini-bar { height:4px; background:var(--green); transition:width 0.3s; }
 
+  /* Wysalone taper note inside panel */
+  .wys-taper-note { padding:8px 16px; font-size:0.76rem; color:#7a5010; background:#fef8ec; border-bottom:1px solid #f0dda0; line-height:1.5; }
+
   .sess-group { border-bottom:1px solid rgba(0,0,0,0.05); }
   .sess-group:last-child { border-bottom:none; }
   .sess-label { padding:8px 16px 4px; font-size:0.68rem; font-weight:700; text-transform:uppercase; letter-spacing:0.6px; color:#b09070; }
+
   .chk { display:flex; align-items:center; padding:10px 16px; gap:12px; cursor:pointer; border-bottom:1px solid rgba(0,0,0,0.03); transition:background 0.1s; }
   .chk:last-child { border-bottom:none; }
   .chk:hover { background:#fafaf8; }
   .chk.done { background:#f8fdf9; }
   .chk-box { width:28px; height:28px; border-radius:8px; border:2px solid #d0c4b8; display:flex; align-items:center; justify-content:center; flex-shrink:0; transition:all 0.15s; background:#fff; color:transparent; font-size:1rem; font-weight:700; }
   .chk.done .chk-box { background:var(--green); border-color:var(--green); color:#fff; }
-  .chk-text { flex:1; font-size:0.83rem; color:var(--brown-deep); line-height:1.3; }
+  .chk-col { flex:1; }
+  .chk-text { font-size:0.83rem; color:var(--brown-deep); line-height:1.3; }
   .chk.done .chk-text { text-decoration:line-through; color:#aaa; }
-  .chk-time { font-family:'Fraunces',serif; font-size:0.72rem; font-weight:700; color:#a08870; min-width:64px; text-align:right; }
+  .chk-badge { display:inline-block; margin-top:3px; font-size:0.64rem; font-weight:700; padding:1px 7px; border-radius:8px; background:#e8ddd0; color:#7a5c3e; }
+  .chk-time { font-family:'Fraunces',serif; font-size:0.72rem; font-weight:700; color:#a08870; min-width:64px; text-align:right; flex-shrink:0; }
 
   .tick-all-btn { display:block; margin:10px 16px 12px; background:var(--green-light); border:1.5px solid #b8d9c4; border-radius:8px; padding:9px 14px; font-size:0.8rem; font-weight:600; color:var(--green); cursor:pointer; font-family:'DM Sans',sans-serif; width:calc(100% - 32px); text-align:center; }
   .tick-all-btn:hover { background:#daf2e6; }
   .reset-btn { margin-top:6px; background:none; border:1.5px solid #d0c4b8; border-radius:8px; padding:7px 14px; font-size:0.72rem; color:#a08870; cursor:pointer; font-family:'DM Sans',sans-serif; }
   .reset-btn:hover { border-color:var(--rose); color:var(--rose); }
 
-  .section { border-bottom:1px solid var(--border); }
+  /* TIMETABLE */
+  .section { border-bottom:1px solid var(--border); background:var(--warm-white); }
   .section:last-child { border-bottom:none; }
   .section-header { display:flex; align-items:center; gap:10px; padding:14px 20px 12px; font-family:'Fraunces',serif; font-size:0.95rem; font-weight:700; border-bottom:1px solid var(--border); }
   .section-header.morning   { background:#fef8ec; color:var(--amber); }
@@ -237,36 +324,45 @@
 
   .row { display:flex; align-items:flex-start; padding:13px 20px; gap:14px; border-bottom:1px solid rgba(0,0,0,0.04); }
   .row:last-child { border-bottom:none; }
-  .time-col { min-width:72px; font-family:'Fraunces',serif; font-size:0.95rem; font-weight:700; padding-top:1px; color:var(--brown-mid); }
-  .dot { width:9px; height:9px; border-radius:50%; margin-top:5px; flex-shrink:0; }
+  .time-col { min-width:74px; font-family:'Fraunces',serif; font-size:0.95rem; font-weight:700; padding-top:2px; color:var(--brown-mid); }
+  .dot { width:9px; height:9px; border-radius:50%; margin-top:6px; flex-shrink:0; }
   .dot.oral    { background:var(--amber); }
   .dot.eyedrop { background:var(--sage); }
   .dot.walk    { background:#2a6496; }
-  .med-col    { flex:1; }
-  .med-name   { font-weight:600; font-size:0.9rem; line-height:1.3; color:var(--brown-deep); }
-  .med-detail { font-size:0.78rem; color:#7a6555; margin-top:2px; line-height:1.4; }
-  .tag { display:inline-block; font-size:0.66rem; font-weight:600; padding:2px 7px; border-radius:8px; margin-right:4px; letter-spacing:0.3px; vertical-align:middle; }
+  .med-col { flex:1; }
+  .med-name { font-weight:600; font-size:0.9rem; line-height:1.3; color:var(--brown-deep); display:flex; flex-wrap:wrap; align-items:center; gap:5px; }
+  .med-detail { font-size:0.78rem; color:#7a6555; margin-top:3px; line-height:1.4; }
+  .tag { display:inline-block; font-size:0.65rem; font-weight:600; padding:2px 7px; border-radius:8px; letter-spacing:0.3px; }
   .tag.oral  { background:#fef3dc; color:var(--amber); }
   .tag.drops { background:#e8f2ec; color:var(--sage); }
   .tag.food  { background:#f0ebff; color:#6a4aac; }
   .tag.empty { background:#fdecea; color:var(--rose); }
+  .dur { font-size:0.64rem; font-weight:700; padding:2px 7px; border-radius:9px; white-space:nowrap; }
+  .dur.d15   { background:#fde8e8; color:#b5432a; }
+  .dur.d14   { background:#e8f0ff; color:#2a4a96; }
+  .dur.d6    { background:#fff0f0; color:#c03030; }
+  .dur.dlt   { background:#e8f2ec; color:var(--sage); }
+  .dur.d1to7 { background:#fff3e0; color:#c06010; }
+  .dur.taper { background:#fef8ec; color:var(--amber); }
+
   .row.walk-row { background:#f0f5ff; border-left:3px solid var(--sky); }
   .row.walk-row .med-name { color:var(--sky); }
 
+  /* Notes & rules */
+  .wysalone-note { margin:0 20px 16px; padding:14px 16px; background:#fef8ec; border:1.5px solid #f0d090; border-radius:12px; font-size:0.8rem; color:#7a5010; line-height:1.8; }
+  .wysalone-note strong { color:var(--amber); font-weight:700; }
   .critical { margin:16px 20px; padding:14px 16px; background:var(--rose-light); border:1.5px solid #e8a09a; border-radius:12px; }
   .critical-title { font-family:'Fraunces',serif; font-size:0.88rem; font-weight:700; color:var(--rose); margin-bottom:6px; }
   .critical ul { padding-left:16px; font-size:0.8rem; color:#7a2a1e; line-height:1.7; }
   .rules { margin:0 20px 20px; padding:14px 16px; background:var(--sage-light); border:1.5px solid #b8d9c4; border-radius:12px; }
   .rules-title { font-family:'Fraunces',serif; font-size:0.88rem; font-weight:700; color:var(--sage); margin-bottom:6px; }
   .rules ul { padding-left:16px; font-size:0.8rem; color:#2d5c3e; line-height:1.7; }
-  .wysalone-note { margin:0 20px 16px; padding:12px 16px; background:#fef8ec; border:1.5px solid #f0d090; border-radius:12px; font-size:0.8rem; color:#7a5010; line-height:1.6; }
-  .wysalone-note strong { color:var(--amber); font-weight:700; }
   .footer { text-align:center; padding:18px 20px; border-top:1px solid var(--border); font-size:0.75rem; color:#a08870; line-height:1.6; }
   .footer strong { color:var(--brown-mid); }
 
   @media (max-width:480px) {
     .header h1 { font-size:1.5rem; }
-    .time-col  { min-width:58px; font-size:0.85rem; }
+    .time-col  { min-width:60px; font-size:0.85rem; }
     .day-pill  { width:38px; height:42px; }
   }
 </style>
@@ -277,6 +373,7 @@
   <div class="header">
     <span class="paw">🐾</span>
     <h1>Milky's Medication Schedule <span class="sync-dot" title="Live sync active"></span></h1>
+    <div class="sub">Family real-time tracker · Updates live for everyone</div>
     <span class="dog-tag">Left Eye Protection — Follow Precisely</span>
   </div>
 
@@ -284,8 +381,8 @@
 
     <!-- TRACKER -->
     <div class="tracker-wrap">
-      <div class="tracker-title">📅 14-Day Progress Tracker</div>
-      <div class="tracker-sub">Tap any day → tick each medicine after giving it to Milky. Updates live for all family members! 🔄</div>
+      <div class="tracker-title">📅 15-Day Progress Tracker</div>
+      <div class="tracker-sub">Tap any day → tick each medicine after giving it to Milky. Medicines auto-adjust by day! 🔄</div>
       <div class="bar-wrap"><div class="bar-fill" id="overallBar" style="width:0%"></div></div>
       <div class="bar-label" id="overallLabel">Loading…</div>
       <div class="day-pills" id="dayPills"></div>
@@ -297,41 +394,41 @@
     <div class="section">
       <div class="section-header morning">
         <span class="icon">🌅</span><span class="label">Morning</span>
-        <span class="walk-badge">🦮 Walk: 6:30–8:00 AM</span>
+        <span class="walk-badge">🦮 Walk: 7:30–8:30 AM</span>
       </div>
       <div class="row">
-        <div class="time-col">6:00 AM</div><div class="dot oral"></div>
+        <div class="time-col">7:00 AM</div><div class="dot oral"></div>
         <div class="med-col">
-          <div class="med-name"><span class="tag empty">Empty Stomach</span> Tab Pan 20mg</div>
-          <div class="med-detail">1 full tablet · Swallow whole, do not crush · 30 min before food &amp; water · <strong>14 days</strong></div>
+          <div class="med-name"><span class="tag empty">Empty Stomach</span> Tab Pan 20mg <span class="dur d14">14 days</span></div>
+          <div class="med-detail">1 full tablet · Swallow whole, do not crush · 30 min before food &amp; water</div>
         </div>
       </div>
       <div class="row">
-        <div class="time-col">6:05 AM</div><div class="dot eyedrop"></div>
+        <div class="time-col">6:00 AM</div><div class="dot eyedrop"></div>
         <div class="med-col">
-          <div class="med-name"><span class="tag drops">Eye Drops</span> Pred Forte (Dose 1/6)</div>
-          <div class="med-detail">1 drop · Left eye only · <strong>15 days</strong> · ⏱ Next dose 10:05 AM</div>
+          <div class="med-name"><span class="tag drops">Eye Drops</span> Pred Forte — Dose 1/6 <span class="dur d15">15 days</span></div>
+          <div class="med-detail">1 drop · Left eye · Wait 5 min before any other drop · ⏱ Every 3hrs · Next: 9:00 AM</div>
+        </div>
+      </div>
+      <div class="row">
+        <div class="time-col">7:00 AM</div><div class="dot eyedrop"></div>
+        <div class="med-col">
+          <div class="med-name"><span class="tag drops">Eye Drops</span> Maxmoist Ultra — Dose 1/3 <span class="dur dlt">Long term</span></div>
+          <div class="med-detail">1 drop · Both eyes · 5 min after Pred Forte if given together</div>
         </div>
       </div>
       <div class="row walk-row">
-        <div class="time-col">6:30 AM</div><div class="dot walk"></div>
+        <div class="time-col">7:30 AM</div><div class="dot walk"></div>
         <div class="med-col">
           <div class="med-name">🦮 Morning Walk</div>
-          <div class="med-detail">6:30 – 8:00 AM · Pan &amp; Pred Forte given before walk ✓</div>
+          <div class="med-detail">7:30 – 8:30 AM · Pan &amp; Pred Forte given before walk ✓</div>
         </div>
       </div>
       <div class="row">
-        <div class="time-col">8:00 AM</div><div class="dot oral"></div>
+        <div class="time-col">9:00 AM</div><div class="dot eyedrop"></div>
         <div class="med-col">
-          <div class="med-name"><span class="tag oral">Oral</span> Tab Wysalone 10mg</div>
-          <div class="med-detail">¾ tablet · <strong>with or After Food</strong> · Start only after blood evaluation · <strong>Taper after 7 days</strong></div>
-        </div>
-      </div>
-      <div class="row">
-        <div class="time-col">8:00 AM</div><div class="dot oral"></div>
-        <div class="med-col">
-          <div class="med-name"><span class="tag food">With Food</span> Tab Zedox 100mg</div>
-          <div class="med-detail">1½ tablets with breakfast · Once daily · <strong>14 days</strong></div>
+          <div class="med-name"><span class="tag drops">Eye Drops</span> Pred Forte — Dose 2/6 <span class="dur d15">15 days</span></div>
+          <div class="med-detail">1 drop · Left eye · ⏱ 3hr after dose 1 · Next: 12:00 PM</div>
         </div>
       </div>
     </div>
@@ -342,17 +439,20 @@
         <span class="icon">☀️</span><span class="label">Mid-Morning</span>
       </div>
       <div class="row">
-        <div class="time-col">10:05 AM</div><div class="dot eyedrop"></div>
+        <div class="time-col">9:00 AM</div><div class="dot oral"></div>
         <div class="med-col">
-          <div class="med-name"><span class="tag drops">Eye Drops</span> Pred Forte (Dose 2/6)</div>
-          <div class="med-detail">1 drop · Left eye only · ⏱ 4hr after dose 1 · Next dose 2:05 PM</div>
+          <div class="med-name"><span class="tag food">With Food</span> Tab Wysalone 10mg <span class="dur taper">15 days · tapering</span></div>
+          <div class="med-detail">
+            Days 1–7: ¾ tab · Days 8–12: ¾ tab · Days 13–15: ½ tab · Start only after blood test<br>
+            <strong>⚠️ Dose auto-changes — check day number in tracker</strong>
+          </div>
         </div>
       </div>
       <div class="row">
-        <div class="time-col">10:10 AM</div><div class="dot eyedrop"></div>
+        <div class="time-col">9:00 AM</div><div class="dot oral"></div>
         <div class="med-col">
-          <div class="med-name"><span class="tag drops">Eye Drops</span> Maxmoist Ultra (Dose 1/3)</div>
-          <div class="med-detail">1 drop · Both eyes · 5 min after Pred Forte</div>
+          <div class="med-name"><span class="tag food">With Food</span> Tab Zedox 100mg <span class="dur d14">14 days</span></div>
+          <div class="med-detail">1½ tablets with food · Once daily · Stops after Day 14</div>
         </div>
       </div>
     </div>
@@ -363,17 +463,24 @@
         <span class="icon">🌤️</span><span class="label">Afternoon</span>
       </div>
       <div class="row">
-        <div class="time-col">2:05 PM</div><div class="dot eyedrop"></div>
+        <div class="time-col">12:00 PM</div><div class="dot eyedrop"></div>
         <div class="med-col">
-          <div class="med-name"><span class="tag drops">Eye Drops</span> Pred Forte (Dose 3/6)</div>
-          <div class="med-detail">1 drop · Left eye only · ⏱ 4hr after dose 2 · Next dose 6:05 PM</div>
+          <div class="med-name"><span class="tag drops">Eye Drops</span> Pred Forte — Dose 3/6 <span class="dur d15">15 days</span></div>
+          <div class="med-detail">1 drop · Left eye · ⏱ 3hr after dose 2 · Next: 3:00 PM</div>
         </div>
       </div>
       <div class="row">
-        <div class="time-col">2:10 PM</div><div class="dot eyedrop"></div>
+        <div class="time-col">1:00 PM</div><div class="dot eyedrop"></div>
         <div class="med-col">
-          <div class="med-name"><span class="tag drops">Eye Drops</span> Maxmoist Ultra (Dose 2/3)</div>
-          <div class="med-detail">1 drop · Both eyes · 5 min after Pred Forte</div>
+          <div class="med-name"><span class="tag drops">Eye Drops</span> Maxmoist Ultra — Dose 2/3 <span class="dur dlt">Long term</span></div>
+          <div class="med-detail">1 drop · Both eyes · 5 min after Pred Forte if given together</div>
+        </div>
+      </div>
+      <div class="row">
+        <div class="time-col">3:00 PM</div><div class="dot eyedrop"></div>
+        <div class="med-col">
+          <div class="med-name"><span class="tag drops">Eye Drops</span> Pred Forte — Dose 4/6 <span class="dur d15">15 days</span></div>
+          <div class="med-detail">1 drop · Left eye · ⏱ 3hr after dose 3 · Next: 6:00 PM</div>
         </div>
       </div>
     </div>
@@ -388,35 +495,28 @@
         <div class="time-col">5:00 PM</div><div class="dot walk"></div>
         <div class="med-col">
           <div class="med-name">🦮 Evening Walk</div>
-          <div class="med-detail">5:00 – 6:30 PM · Drops given at 6:05 PM after walk ✓</div>
+          <div class="med-detail">5:00 – 6:30 PM · Drops given at 6:00 PM after walk ✓</div>
         </div>
       </div>
       <div class="row">
-        <div class="time-col">6:05 PM</div><div class="dot eyedrop"></div>
+        <div class="time-col">6:00 PM</div><div class="dot eyedrop"></div>
         <div class="med-col">
-          <div class="med-name"><span class="tag drops">Eye Drops</span> Pred Forte (Dose 4/6)</div>
-          <div class="med-detail">1 drop · Left eye only · ⏱ 4hr after dose 3 · Next dose 8:05 PM</div>
-        </div>
-      </div>
-      <div class="row">
-        <div class="time-col">6:10 PM</div><div class="dot eyedrop"></div>
-        <div class="med-col">
-          <div class="med-name"><span class="tag drops">Eye Drops</span> Maxmoist Ultra (Dose 3/3)</div>
-          <div class="med-detail">1 drop · Both eyes</div>
+          <div class="med-name"><span class="tag drops">Eye Drops</span> Pred Forte — Dose 5/6 <span class="dur d15">15 days</span></div>
+          <div class="med-detail">1 drop · Left eye · ⏱ 3hr after dose 4 · Next: 9:00 PM</div>
         </div>
       </div>
       <div class="row">
         <div class="time-col">6:30 PM</div><div class="dot oral"></div>
         <div class="med-col">
-          <div class="med-name"><span class="tag oral">Oral</span> Tab Wysalone 10mg</div>
-          <div class="med-detail">¾ tablet · <strong>NOT with food</strong> · Days 1–7 only (evening dose)</div>
+          <div class="med-name"><span class="tag food">With Food</span> Tab Wysalone 10mg — Evening <span class="dur d1to7">⚠️ Days 1–7 ONLY</span></div>
+          <div class="med-detail">¾ tablet with/after dinner · <strong>Stops completely from Day 8</strong></div>
         </div>
       </div>
       <div class="row">
-        <div class="time-col">8:05 PM</div><div class="dot eyedrop"></div>
+        <div class="time-col">7:00 PM</div><div class="dot eyedrop"></div>
         <div class="med-col">
-          <div class="med-name"><span class="tag drops">Eye Drops</span> Pred Forte (Dose 5/6)</div>
-          <div class="med-detail">1 drop · Left eye only · ⏱ 2hr gap · Next dose 10:05 PM</div>
+          <div class="med-name"><span class="tag drops">Eye Drops</span> Maxmoist Ultra — Dose 3/3 <span class="dur dlt">Long term</span></div>
+          <div class="med-detail">1 drop · Both eyes</div>
         </div>
       </div>
     </div>
@@ -427,26 +527,27 @@
         <span class="icon">🌙</span><span class="label">Night</span>
       </div>
       <div class="row">
-        <div class="time-col">10:05 PM</div><div class="dot eyedrop"></div>
+        <div class="time-col">9:00 PM</div><div class="dot eyedrop"></div>
         <div class="med-col">
-          <div class="med-name"><span class="tag drops">Eye Drops</span> Pred Forte (Dose 6/6 — Last)</div>
-          <div class="med-detail">1 drop · Left eye only · ⏱ 4hr after dose 4 ✅</div>
+          <div class="med-name"><span class="tag drops">Eye Drops</span> Pred Forte — Dose 6/6 (Last) <span class="dur d15">15 days</span></div>
+          <div class="med-detail">1 drop · Left eye · ⏱ 3hr after dose 5 ✅</div>
         </div>
       </div>
       <div class="row">
-        <div class="time-col">10:10 PM</div><div class="dot eyedrop"></div>
+        <div class="time-col">10:00 PM</div><div class="dot eyedrop"></div>
         <div class="med-col">
-          <div class="med-name"><span class="tag drops">Eye Drops</span> Tropicamide</div>
-          <div class="med-detail">1 drop · Left eye only · Once daily at night · <strong>6 days only</strong></div>
+          <div class="med-name"><span class="tag drops">Eye Drops</span> Tropicamide <span class="dur d6">⚠️ Days 1–6 ONLY</span></div>
+          <div class="med-detail">1 drop · Left eye · Once at night · After Pred Forte · Stops after Day 6</div>
         </div>
       </div>
     </div>
 
     <div class="wysalone-note">
-      <strong>⚠️ Wysalone Tapering (start only after blood test):</strong><br>
-      Days 1–7: ¾ tab × 2 daily (8 AM + 6:30 PM · NOT with food) &nbsp;→&nbsp;
-      Days 8–12: ¾ tab × 1 daily (8 AM only) &nbsp;→&nbsp;
-      Days 13–15: ½ tab × 1 daily · Increased hunger &amp; urination are expected side effects.
+      <strong>⚠️ Wysalone 10mg — Auto-adjusts in tracker each day:</strong><br><br>
+      📅 <strong>Days 1–7 :</strong> ¾ tab × <strong>twice</strong> daily — 9:00 AM + 6:30 PM (with/after food)<br>
+      📅 <strong>Days 8–12 :</strong> ¾ tab × <strong>once</strong> daily — 9:00 AM only &nbsp;·&nbsp; Evening dose disappears automatically<br>
+      📅 <strong>Days 13–15 :</strong> ½ tab × <strong>once</strong> daily — 9:00 AM only<br><br>
+      ⚡ Increased hunger &amp; urination are expected side effects. Start only after blood test (CBC, LFT, KFT).
     </div>
 
     <div class="critical">
@@ -456,7 +557,6 @@
         <li>Left eye has <strong>Grade 3 uveitis</strong> — at high risk for secondary glaucoma</li>
         <li>Missing Pred Forte doses can cause <strong>permanent irreversible vision loss</strong></li>
         <li>Watch for squinting or increased redness → contact vet immediately</li>
-        <li>Blood test (CBC, LFT, KFT) needed before starting Wysalone</li>
         <li>Follow-up in <strong>2 weeks</strong> with Dr. Manoj Reddy</li>
       </ul>
     </div>
@@ -465,15 +565,19 @@
       <div class="rules-title">✅ Important Rules</div>
       <ul>
         <li>Always wait <strong>5 minutes between eye drops</strong> — Pred Forte first, then others</li>
-        <li>Pan 20mg — <strong>empty stomach</strong>, swallow whole, do not break or crush</li>
-        <li>Wysalone — <strong>NOT with food</strong> &nbsp;·&nbsp; Zedox — <strong>with food only</strong></li>
-        <li>Pred Forte — <strong>6×/day</strong> · 6:05 AM · 10:05 AM · 2:05 PM · 6:05 PM · 8:05 PM · 10:05 PM</li>
-        <li>Tropicamide — <strong>once at night only</strong> · after last Pred Forte · 6 days only</li>
-        <li>Maxmoist — <strong>3×/day</strong> both eyes · 10:10 AM · 2:10 PM · 6:10 PM</li>
+        <li>Pan 20mg — <strong>empty stomach</strong>, swallow whole, do not crush</li>
+        <li>Wysalone &amp; Zedox — <strong>with or after food</strong> at 9:00 AM</li>
+        <li>Pred Forte — <strong>6×/day every 3hrs</strong> · 6:00 AM · 9:00 AM · 12:00 PM · 3:00 PM · 6:00 PM · 9:00 PM</li>
+        <li>Maxmoist — <strong>3×/day</strong> both eyes · 7:00 AM · 1:00 PM · 7:00 PM · Long term</li>
+        <li>Tropicamide — <strong>once at night · Days 1–6 only</strong> · auto-removed after Day 6</li>
+        <li>Wysalone evening — <strong>Days 1–7 only</strong> · auto-removed after Day 7</li>
       </ul>
     </div>
 
-    
+    <div class="footer">
+      <strong>Milky (18066)</strong> · TEV HYD Eyevet Clinics Pvt. Ltd · Hyderabad<br>
+      Prescription: 12/03/2026 · Follow-up in 2 weeks
+    </div>
 
   </div>
 </div>
